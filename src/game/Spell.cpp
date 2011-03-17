@@ -510,18 +510,27 @@ bool Spell::FillCustomTargetMap(SpellEffectIndex i, UnitList &targetUnitMap)
             FillAreaTargets(targetUnitMap,m_targets.m_destX, m_targets.m_destY,radius,PUSH_DEST_CENTER,SPELL_TARGETS_AOE_DAMAGE);
             UnitList tmpUnitMap;
             FillAreaTargets(tmpUnitMap,m_targets.m_destX, m_targets.m_destY, 10.0f, PUSH_DEST_CENTER, SPELL_TARGETS_AOE_DAMAGE);
-            if (targetUnitMap.empty() || tmpUnitMap.empty())
-                break;
-            for (UnitList::const_iterator itr = targetUnitMap.begin(); itr != targetUnitMap.end(); ++itr)
+            bool TargetToRemoveHere = true;
+            while (TargetToRemoveHere)
             {
-                for (UnitList::const_iterator itr2 = tmpUnitMap.begin(); itr2 != tmpUnitMap.end(); ++itr2)
+                TargetToRemoveHere = false;
+                if (targetUnitMap.empty() || tmpUnitMap.empty())
+                    break;
+                for (UnitList::const_iterator itr = targetUnitMap.begin(); itr != targetUnitMap.end(); ++itr)
                 {
-                    if (*itr == *itr2)
-                        targetUnitMap.remove(*itr);
-                    break;
+                    for (UnitList::const_iterator itr2 = tmpUnitMap.begin(); itr2 != tmpUnitMap.end(); ++itr2)
+                    {
+                        if (*itr == *itr2)
+                        {
+                            targetUnitMap.remove(*itr);
+                            tmpUnitMap.remove(*itr2);
+                            TargetToRemoveHere = true;
+                            break;
+                        }
+                    }
+                    if (TargetToRemoveHere)
+                        break;
                 }
-                if (targetUnitMap.empty())
-                    break;
             }
             break;
         }
@@ -4124,7 +4133,7 @@ void Spell::WriteAmmoToPacket( WorldPacket * data )
     }
     else
     {
-        for (uint8 i = 0; i < 3; ++i)
+        for (uint8 i = 0; i < MAX_VIRTUAL_ITEM_SLOT; ++i)
         {
             if(uint32 item_id = m_caster->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + i))
             {
@@ -4491,6 +4500,14 @@ void Spell::TakePower()
 {
     if(m_CastItem || m_triggeredByAuraSpell)
         return;
+
+    // FG: not sure if m_isTriggeredSpell == true is enough to skip spell costs
+    // so for now, added exception list until i'm sure how it should be done
+    switch(m_spellInfo->Id)
+    {
+        case 50782: // Slam, triggered
+            return;
+    }
 
     // health as power used
     if(m_spellInfo->powerType == POWER_HEALTH)
