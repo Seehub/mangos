@@ -272,9 +272,6 @@ void Spell::EffectInstaKill(SpellEffectIndex /*eff_idx*/)
     if (!unitTarget || !unitTarget->isAlive())
         return;
 
-    if(m_spellInfo->Id==52479 && unitTarget->GetTypeId()==TYPEID_PLAYER)
-        return;
-
     if (m_caster == unitTarget)                              // prevent interrupt message
         finish();
 
@@ -1055,7 +1052,7 @@ void Spell::EffectDummy(SpellEffectIndex eff_idx)
                 {
                     if (!unitTarget)
                         return;
-                    
+
                     if (urand(0, 99) < 10)                  //10% chance for rare effects
                         switch(urand(1, 4))
                         {
@@ -1070,9 +1067,7 @@ void Spell::EffectDummy(SpellEffectIndex eff_idx)
                             case 1: m_caster->CastSpell(unitTarget, 8401, true); break;  //fireball
                             case 2: m_caster->CastSpell(unitTarget, 8407, true); break;  //frostbolt
                             case 3: m_caster->CastSpell(unitTarget, 421, true); break;   //chain lightning
-
                         }
-                    
                     return;
                 }
                 case 15998:                                 // Capture Worg Pup
@@ -2194,7 +2189,9 @@ void Spell::EffectDummy(SpellEffectIndex eff_idx)
                 }
                 case 54171:                                 //Divine Storm
                 {
-                    m_caster->CastCustomSpell(unitTarget, 54172, &damage, NULL, NULL, true);
+                    // split between targets
+                    int32 bp = damage / m_UniqueTargetInfo.size();
+                    m_caster->CastCustomSpell(unitTarget, 54172, &bp, NULL, NULL, true);
                     return;
                 }
                 case 52845:                                 // Brewfest Mount Transformation (Faction Swap)
@@ -7063,18 +7060,28 @@ void Spell::EffectScriptEffect(SpellEffectIndex eff_idx)
                     m_caster->CastSpell(m_caster, 43351, true);
                     return;
                 }
-				case 43375:
-				case 43972:		// Mixing Blood for Quest 11306 
+                case 44364:                                 // Rock Falcon Primer
                 {
-					switch(urand(0, 2))
-					{
-						case 0 : m_caster->CastSpell(m_caster, 43378, true); break;
-						case 1 : m_caster->CastSpell(m_caster, 43376, true); break;
-						case 2 : m_caster->CastSpell(m_caster, 43377, true); break;
-						case 3 : m_caster->CastSpell(m_caster, 43970, true); break;
-					}
-					break;
-				}
+                    if (!unitTarget || unitTarget->GetTypeId() != TYPEID_PLAYER)
+                        return;
+
+                    // Are there anything special with this, a random chance or condition?
+                    // Feeding Rock Falcon
+                    unitTarget->CastSpell(unitTarget, m_spellInfo->CalculateSimpleValue(eff_idx), true, NULL, NULL, unitTarget->GetObjectGuid(), m_spellInfo);
+                    return;
+                }
+                case 43375:
+                case 43972:                                // Mixing Blood for Quest 11306 
+                {
+                    switch(urand(0, 3))
+                    {
+                        case 0 : m_caster->CastSpell(m_caster, 43378, true); break;
+                        case 1 : m_caster->CastSpell(m_caster, 43376, true); break;
+                        case 2 : m_caster->CastSpell(m_caster, 43377, true); break;
+                        case 3 : m_caster->CastSpell(m_caster, 43970, true); break;
+                    }
+                    break;
+                }
                 case 44455:                                 // Character Script Effect Reverse Cast
                 {
                     if (!unitTarget || unitTarget->GetTypeId() != TYPEID_UNIT)
@@ -7590,12 +7597,13 @@ void Spell::EffectScriptEffect(SpellEffectIndex eff_idx)
                     unitTarget->CastSpell(unitTarget, m_spellInfo->EffectBasePoints[eff_idx]+1, true);
                     break;
                 }
-                case 52479:                                 // The Gift That Keeps On Giving - trigger Scarlet Miner Ghoul Transform
+                case 52479:                                 // The Gift That Keeps On Giving
                 {
-                    if (m_caster->GetTypeId() != TYPEID_PLAYER || unitTarget->GetTypeId() == TYPEID_PLAYER)
+                    if (!m_caster || !unitTarget)
                         return;
 
-                    m_caster->CastSpell(m_caster, m_spellInfo->EffectBasePoints[eff_idx]+1, true);
+                    m_caster->CastSpell(m_caster, roll_chance_i(75) ? 52505 : m_spellInfo->EffectBasePoints[eff_idx]+1, true);
+                    ((Creature*)unitTarget)->ForcedDespawn();
                     break;
                 }
                 case 52694:                                 // Recall Eye of Acherus
@@ -8179,6 +8187,22 @@ void Spell::EffectScriptEffect(SpellEffectIndex eff_idx)
                         int32 power = unitTarget->GetPower(unitTarget->getPowerType());
                         unitTarget->CastCustomSpell(unitTarget, 72371, &power, &power, NULL, true);
                     }
+                    return;
+                }
+                case 72864:                                 // Death plague
+                {
+                    if (!unitTarget)
+                        return;
+
+                    if (unitTarget->GetObjectGuid() == m_caster->GetObjectGuid())
+                    {
+                        if ((int)m_UniqueTargetInfo.size() < 2)
+                            m_caster->CastSpell(m_caster, 72867, true, NULL, NULL, m_originalCasterGUID);
+                        else
+                            m_caster->CastSpell(m_caster, 72884, true);
+                    }
+                    else
+                        unitTarget->CastSpell(unitTarget, 72865, true, NULL, NULL, m_originalCasterGUID);
                     return;
                 }
             }
