@@ -129,7 +129,7 @@ pAuraProcHandler AuraProcHandler[TOTAL_AURAS]=
     &Unit::HandleNULLProc,                                  // 94 SPELL_AURA_INTERRUPT_REGEN
     &Unit::HandleNULLProc,                                  // 95 SPELL_AURA_GHOST
     &Unit::HandleNULLProc,                                  // 96 SPELL_AURA_SPELL_MAGNET
-    &Unit::HandleNULLProc,                                  // 97 SPELL_AURA_MANA_SHIELD
+    &Unit::HandleManaShieldAuraProc,                        // 97 SPELL_AURA_MANA_SHIELD
     &Unit::HandleNULLProc,                                  // 98 SPELL_AURA_MOD_SKILL_TALENT
     &Unit::HandleNULLProc,                                  // 99 SPELL_AURA_MOD_ATTACK_POWER
     &Unit::HandleNULLProc,                                  //100 SPELL_AURA_AURAS_VISIBLE obsolete 3.x? all player can see all auras now, but still have 2 spells including GM-spell (1852,2855)
@@ -1245,16 +1245,6 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                 target = this;
                 break;
             }
-            // Incanter's Regalia set (add trigger chance to Mana Shield)
-            if (dummySpell->SpellFamilyFlags & UI64LIT(0x0000000000008000))
-            {
-                if (GetTypeId() != TYPEID_PLAYER)
-                    return SPELL_AURA_PROC_FAILED;
-
-                target = this;
-                triggered_spell_id = 37436;
-                break;
-            }
             switch(dummySpell->Id)
             {
                 // Ignite
@@ -1729,6 +1719,20 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                     // triggered_spell_id in spell data
                     break;
                 }
+                // Item - Priest T10 Healer 4P Bonus
+                case 70799:
+                {
+                    if (GetTypeId() != TYPEID_PLAYER)
+                        return SPELL_AURA_PROC_FAILED;
+                    
+                    // Circle of Healing
+                    ((Player*)this)->RemoveSpellCategoryCooldown(1204, true);
+
+                    // Penance
+                    ((Player*)this)->RemoveSpellCategoryCooldown(1230, true);
+
+                    return SPELL_AURA_PROC_OK;
+                }
                 // Glyph of Prayer of Healing
                 case 55680:
                 {
@@ -1863,31 +1867,22 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                 // Glyph of Shred
                 case 54815:
                 {
-                    // try to find spell Rip on the target
                     if (Aura* aura = target->GetAura(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DRUID, UI64LIT(0x00800000), 0, GetGUID()))
                     {
-                        // Rip's max duration, note: spells which modifies Rip's duration also counted like Glyph of Rip
                         uint32 countMin = aura->GetAuraMaxDuration();
-
-                        // just Rip's max duration without other spells
                         uint32 countMax = GetSpellMaxDuration(aura->GetSpellProto());
+                        countMax += 3 * triggerAmount * 1000;       
+                        countMax += HasAura(54818) ? 4 * 1000 : 0; 
+                        countMax += HasAura(60141) ? 4 * 1000 : 0;
 
-                        // add possible auras and Glyph of Shred's max duration
-                        countMax += 3 * triggerAmount * 1000;       // Glyph of Shred               -> +6 seconds
-                        countMax += HasAura(54818) ? 4 * 1000 : 0;  // Glyph of Rip                 -> +4 seconds
-                        countMax += HasAura(60141) ? 4 * 1000 : 0;  // Rip Duration/Lacerate Damage -> +4 seconds
-
-                        // if min < max -> that means caster didn't cast 3 shred yet
-                        // so set Rip's duration and max duration
                         if (countMin < countMax)
                         {
-                            aura->SetAuraDuration(aura->GetAuraDuration() + triggerAmount * 1000);
-                            aura->SetAuraMaxDuration(countMin + triggerAmount * 1000);
+                            aura->GetHolder()->SetAuraDuration(aura->GetAuraDuration() + triggerAmount * 1000);
+                            aura->GetHolder()->SetAuraDuration(countMin + triggerAmount * 1000);
                             aura->GetHolder()->SendAuraUpdate(false);
                             return SPELL_AURA_PROC_OK;
                         }
                     }
-                    // if not found Rip
                     return SPELL_AURA_PROC_FAILED;
                 }
                 // Glyph of Rake
@@ -2050,8 +2045,8 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
 
                         if (countMin < countMax)
                         {
-                            aura->SetAuraDuration(aura->GetAuraDuration() + triggerAmount * 1000);
-                            aura->SetAuraMaxDuration(countMin + triggerAmount * 1000);
+                            aura->GetHolder()->SetAuraDuration(aura->GetAuraDuration() + triggerAmount * 1000);
+                            aura->GetHolder()->SetAuraMaxDuration(countMin + triggerAmount * 1000);
                             aura->GetHolder()->SendAuraUpdate(false);
                             return SPELL_AURA_PROC_OK;
                         }
@@ -2085,7 +2080,7 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                         int32 duration = GetSpellMaxDuration(spellProto);
                         if(GetTypeId() == TYPEID_PLAYER)
                             static_cast<Player*>(this)->ApplySpellMod(spellProto->Id, SPELLMOD_DURATION, duration);
-                        (*itr)->SetAuraMaxDuration(duration);
+                        (*itr)->GetHolder()->SetAuraMaxDuration(duration);
                         (*itr)->GetHolder()->RefreshHolder();
                         return SPELL_AURA_PROC_OK;
                     }
@@ -2479,6 +2474,10 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                     if (!triggeredEntry)
                         return SPELL_AURA_PROC_FAILED;
 
+                    if(pVictim)
+                        if(!pVictim->HasAura(53569, EFFECT_INDEX_0) && !pVictim->HasAura(53576, EFFECT_INDEX_0))
+                            return SPELL_AURA_PROC_FAILED;
+
                     basepoints[0] = int32(damage / (GetSpellDuration(triggeredEntry) / triggeredEntry->EffectAmplitude[EFFECT_INDEX_0]));
                     target = this;
                     break;
@@ -2493,6 +2492,10 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                 // Item - Paladin T10 Holy 2P Bonus
                 case 70755:
                 {
+                    // This check is not needed in 4.x and must be removed
+                    if (!procSpell || procSpell->Id != 31842)
+                        return SPELL_AURA_PROC_FAILED;
+
                     triggered_spell_id = 71166;
                     break;
                 }
@@ -2771,14 +2774,14 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                 // Shaman T8 Elemental 4P Bonus
                 case 64928:
                 {
-                    basepoints[0] = int32( triggerAmount * damage / 100 );
+                    basepoints[0] = int32(  basepoints[0] / 2); // basepoints is for 1 tick, not all DoT amount
                     triggered_spell_id = 64930;            // Electrified
                     break;
                 }
                 // Shaman T9 Elemental 4P Bonus
                 case 67228:
                 {
-                    basepoints[0] = int32( triggerAmount * damage / 100 );
+                    basepoints[0] = int32(  basepoints[0] / 3); // basepoints is for 1 tick, not all DoT amount
                     triggered_spell_id = 71824;
                     break;
                 }
@@ -2795,12 +2798,12 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                 {
                     if (Aura *aur = pVictim->GetAura(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_SHAMAN, UI64LIT(0x0000000010000000), 0, GetGUID()))
                     {
-                        SpellAuraHolder *aurHolder = GetSpellAuraHolder(aur->GetId());
-                        if (aurHolder)
+                        if (aur->GetHolder())
                         {
                             int32 amount = aur->GetAuraDuration() + triggerAmount * IN_MILLISECONDS;
-                            aur->SetAuraDuration(amount);
-                            aurHolder->SendAuraUpdate(false);
+
+                            aur->GetHolder()->SetAuraDuration(amount);
+                            aur->GetHolder()->SendAuraUpdate(false);
                             return SPELL_AURA_PROC_OK;
                         }
                     }
@@ -2902,6 +2905,11 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                 if(!procSpell || GetTypeId() != TYPEID_PLAYER || !pVictim )
                     return SPELL_AURA_PROC_FAILED;
 
+                // proc for main target only
+                if (Spell *currSpell = GetCurrentSpell(CURRENT_GENERIC_SPELL))
+                    if (currSpell->m_targets.getUnitTarget() != pVictim)
+                        return SPELL_AURA_PROC_FAILED;
+
                 // custom cooldown processing case
                 if( cooldown && GetTypeId()==TYPEID_PLAYER && ((Player*)this)->HasSpellCooldown(dummySpell->Id))
                     return SPELL_AURA_PROC_FAILED;
@@ -2939,11 +2947,17 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, Aura
                         return SPELL_AURA_PROC_FAILED;
                 }
 
+                // TODO: exist special flag in spell attributes for this, need found and use!
+                SpellModifier *modBonusDmg = new SpellModifier(SPELLMOD_SPELL_BONUS_DAMAGE, SPELLMOD_PCT, -50, triggeredByAura);
+                ((Player*)this)->AddSpellMod(modBonusDmg, true);
+
                 // Remove cooldown (Chain Lightning - have Category Recovery time)
                 if (procSpell->SpellFamilyFlags & UI64LIT(0x0000000000000002))
                     ((Player*)this)->RemoveSpellCooldown(spellId);
 
                 CastSpell(pVictim, spellId, true, castItem, triggeredByAura);
+
+                ((Player*)this)->AddSpellMod(modBonusDmg, false);
 
                 if (cooldown && GetTypeId() == TYPEID_PLAYER)
                     ((Player*)this)->AddSpellCooldown(dummySpell->Id, 0, time(NULL) + cooldown);
@@ -3705,7 +3719,7 @@ SpellAuraProcResult Unit::HandleProcTriggerSpellAuraProc(Unit *pVictim, uint32 d
             }
             // Glyph of Shadow Word: Pain
             else if (auraSpellInfo->Id == 55681)
-                basepoints[0] = triggerAmount * GetCreateMana() / 100;
+                basepoints[0] = triggerAmount;
             break;
         }
         case SPELLFAMILY_DRUID:
@@ -3745,6 +3759,19 @@ SpellAuraProcResult Unit::HandleProcTriggerSpellAuraProc(Unit *pVictim, uint32 d
             {
                 if (pVictim != this)
                     return SPELL_AURA_PROC_FAILED;
+            }
+            // Item - Rogue T10 4P Bonus
+            else if (auraSpellInfo->Id == 70803)
+            {
+                if (!procSpell)
+                    return SPELL_AURA_PROC_FAILED;
+
+                // only allow melee finishing move to proc
+                if (!(procSpell->AttributesEx & SPELL_ATTR_EX_REQ_TARGET_COMBO_POINTS) || procSpell->Id == 26679)
+                    return SPELL_AURA_PROC_FAILED;
+
+                trigger_spell_id = 70802;
+                target = this;
             }
             break;
         case SPELLFAMILY_HUNTER:
@@ -3952,6 +3979,27 @@ SpellAuraProcResult Unit::HandleProcTriggerSpellAuraProc(Unit *pVictim, uint32 d
                 trigger_spell_id = 31616;
                 target = this;
             }
+            // Item - Shaman T10 Restoration 2P Bonus
+            else if (auraSpellInfo->Id == 70807)
+            {
+                if (!procSpell)
+                    return SPELL_AURA_PROC_FAILED;
+
+                // only allow Riptide to proc
+                switch(procSpell->Id)
+                {
+                    case 61295: // Rank 1
+                    case 61299: // Rank 2
+                    case 61300: // Rank 3
+                    case 61301: // Rank 4
+                        break;
+                    default:
+                        return SPELL_AURA_PROC_FAILED;
+                }
+
+                trigger_spell_id = 70806;
+                target = this;
+            }
             break;
         }
         case SPELLFAMILY_DEATHKNIGHT:
@@ -3980,6 +4028,16 @@ SpellAuraProcResult Unit::HandleProcTriggerSpellAuraProc(Unit *pVictim, uint32 d
             {
                 if (procSpell->Id != 47633)
                     return SPELL_AURA_PROC_FAILED;
+            }
+           // Item - Death Knight T10 Melee 4P Bonus
+            else if (auraSpellInfo->Id == 70656)
+            {
+                if (GetTypeId() != TYPEID_PLAYER || getClass() != CLASS_DEATH_KNIGHT)
+                    return SPELL_AURA_PROC_FAILED;
+
+                for(uint32 i = 0; i < MAX_RUNES; ++i)
+                    if (((Player*)this)->GetRuneCooldown(i) == 0)
+                        return SPELL_AURA_PROC_FAILED;
             }
             // Blade Barrier
             else if (auraSpellInfo->SpellIconID == 85)
@@ -4538,7 +4596,7 @@ SpellAuraProcResult Unit::HandleAddPctModifierAuraProc(Unit* /*pVictim*/, uint32
         case SPELLFAMILY_PALADIN:
         {
             // Glyph of Divinity
-            if (spellInfo->Id == 11129)
+            if (spellInfo->Id == 54939)
             {
                 // Lookup base amount mana restore
                 for (int i = 0; i < MAX_EFFECT_INDEX; ++i)
@@ -4594,6 +4652,21 @@ SpellAuraProcResult Unit::HandlePeriodicDummyAuraProc(Unit* /*pVictim*/, uint32 
 
     switch (spellProto->SpellFamilyName)
     {
+        case SPELLFAMILY_GENERIC:
+        {
+            switch (spellProto->Id)
+            {
+                case 66334:                                 // Mistress' Kiss (Trial of the Crusader, ->
+                case 67905:                                 // -> Lord Jaraxxus encounter, all difficulties)
+                case 67906:                                 // ----- // -----
+                case 67907:                                 // ----- // -----
+                {
+                    CastSpell(this, 66359, true, NULL, triggeredByAura);
+                    break;
+                }
+            }
+            break;
+        }
         case SPELLFAMILY_DEATHKNIGHT:
         {
             switch (spellProto->SpellIconID)
@@ -4693,4 +4766,61 @@ SpellAuraProcResult Unit::HandleRemoveByDamageChanceProc(Unit* pVictim, uint32 d
         return HandleRemoveByDamageProc(pVictim, damage, triggeredByAura, procSpell, procFlag, procEx, cooldown);
 
     return SPELL_AURA_PROC_FAILED;
+}
+
+SpellAuraProcResult Unit::HandleManaShieldAuraProc(Unit *pVictim, uint32 damage, Aura* triggeredByAura, SpellEntry const * procSpell, uint32 procFlag, uint32 procEx, uint32 cooldown)
+{
+    SpellEntry const *dummySpell = triggeredByAura->GetSpellProto ();
+
+    Item* castItem = !triggeredByAura->GetCastItemGuid().IsEmpty() && GetTypeId()==TYPEID_PLAYER
+        ? ((Player*)this)->GetItemByGuid(triggeredByAura->GetCastItemGuid()) : NULL;
+
+    uint32 triggered_spell_id = 0;
+    Unit* target = pVictim;
+
+    switch(dummySpell->SpellFamilyName)
+    {
+        case SPELLFAMILY_MAGE:
+        {
+            // Incanter's Regalia set (add trigger chance to Mana Shield)
+            if (dummySpell->SpellFamilyFlags & UI64LIT(0x0000000000008000))
+            {
+                if (GetTypeId() != TYPEID_PLAYER)
+                    return SPELL_AURA_PROC_FAILED;
+
+                target = this;
+                triggered_spell_id = 37436;
+                break;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    // processed charge only counting case
+    if (!triggered_spell_id)
+        return SPELL_AURA_PROC_OK;
+
+    SpellEntry const* triggerEntry = sSpellStore.LookupEntry(triggered_spell_id);
+
+    if (!triggerEntry)
+    {
+        sLog.outError("Unit::HandleManaShieldAuraProc: Spell %u have nonexistent triggered spell %u",dummySpell->Id,triggered_spell_id);
+        return SPELL_AURA_PROC_FAILED;
+    }
+
+    // default case
+    if (!target || (target != this && !target->isAlive()))
+        return SPELL_AURA_PROC_FAILED;
+
+    if (cooldown && GetTypeId()==TYPEID_PLAYER && ((Player*)this)->HasSpellCooldown(triggered_spell_id))
+        return SPELL_AURA_PROC_FAILED;
+
+    CastSpell(target, triggered_spell_id, true, castItem, triggeredByAura);
+
+    if (cooldown && GetTypeId()==TYPEID_PLAYER)
+        ((Player*)this)->AddSpellCooldown(triggered_spell_id,0,time(NULL) + cooldown);
+
+    return SPELL_AURA_PROC_OK;
 }

@@ -26,6 +26,7 @@
 #include "Spell.h"
 #include "BattleGroundMgr.h"
 #include "MapManager.h"
+#include "Unit.h"
 
 SpellMgr::SpellMgr()
 {
@@ -59,6 +60,29 @@ int32 GetSpellMaxDuration(SpellEntry const *spellInfo)
     if(!du)
         return 0;
     return (du->Duration[2] == -1) ? -1 : abs(du->Duration[2]);
+}
+
+int32 CalculateSpellDuration(SpellEntry const *spellInfo, Unit const* caster)
+{
+    int32 duration = GetSpellDuration(spellInfo);
+
+    if (duration != -1 && caster)
+    {
+        int32 maxduration = GetSpellMaxDuration(spellInfo);
+
+        if (duration != maxduration && caster->GetTypeId() == TYPEID_PLAYER)
+            duration += int32((maxduration - duration) * ((Player*)caster)->GetComboPoints() / 5);
+
+        if (Player* modOwner = caster->GetSpellModOwner())
+        {
+            modOwner->ApplySpellMod(spellInfo->Id, SPELLMOD_DURATION, duration);
+
+            if (duration < 0)
+                duration = 0;
+        }
+    }
+
+    return duration;
 }
 
 uint32 GetSpellCastTime(SpellEntry const* spellInfo, Spell const* spell)
@@ -361,7 +385,7 @@ SpellSpecific GetSpellSpecific(uint32 spellId)
                             break;
                         // Drink
                         case SPELL_AURA_MOD_POWER_REGEN:
-                        case SPELL_AURA_OBS_MOD_MANA:
+                        case SPELL_AURA_OBS_MOD_ENERGY:
                             drink = true;
                             break;
                         default:
@@ -632,13 +656,12 @@ bool IsExplicitNegativeTarget(uint32 targetA)
     return false;
 }
 
-bool IsPositiveEffect(uint32 spellId, SpellEffectIndex effIndex)
+bool IsPositiveEffect(SpellEntry const *spellproto, SpellEffectIndex effIndex)
 {
-    SpellEntry const *spellproto = sSpellStore.LookupEntry(spellId);
     if (!spellproto)
         return false;
 
-    switch(spellId)
+    switch(spellproto->Id)
     {
         case 37675:                                         // Chaos Blast
         case 56266:                                         // Vortex
@@ -663,18 +686,21 @@ bool IsPositiveEffect(uint32 spellId, SpellEffectIndex effIndex)
         case 64343:                                         // Impact
         case 12042:                                         // Arcane Power
             return true;
+        default:
+            break;
     }
 
     switch(spellproto->Effect[effIndex])
     {
         case SPELL_EFFECT_DUMMY:
             // some explicitly required dummy effect sets
-            switch(spellId)
+            switch(spellproto->Id)
             {
                 case 28441:                                 // AB Effect 000
                     return false;
                 case 49634:                                 // Sergeant's Flare
                 case 54530:                                 // Opening
+                case 62105:                                 // To'kini's Blowgun
                     return true;
                 default:
                     break;
@@ -747,7 +773,7 @@ bool IsPositiveEffect(uint32 spellId, SpellEffectIndex effIndex)
                 case SPELL_AURA_ADD_TARGET_TRIGGER:
                     return true;
                 case SPELL_AURA_PERIODIC_TRIGGER_SPELL:
-                    if (spellId != spellproto->EffectTriggerSpell[effIndex])
+                    if (spellproto->Id != spellproto->EffectTriggerSpell[effIndex])
                     {
                         uint32 spellTriggeredId = spellproto->EffectTriggerSpell[effIndex];
                         SpellEntry const *spellTriggeredProto = sSpellStore.LookupEntry(spellTriggeredId);
@@ -759,8 +785,8 @@ bool IsPositiveEffect(uint32 spellId, SpellEffectIndex effIndex)
                             {
                                 // if non-positive trigger cast targeted to positive target this main cast is non-positive
                                 // this will place this spell auras as debuffs
-                                if (IsPositiveTarget(spellTriggeredProto->EffectImplicitTargetA[effIndex],spellTriggeredProto->EffectImplicitTargetB[effIndex]) &&
-                                    !IsPositiveEffect(spellTriggeredId,SpellEffectIndex(i)))
+                                if (IsPositiveTarget(spellTriggeredProto->EffectImplicitTargetA[effIndex], spellTriggeredProto->EffectImplicitTargetB[effIndex]) &&
+                                    !IsPositiveEffect(spellTriggeredProto, SpellEffectIndex(i)))
                                     return false;
                             }
                         }
@@ -905,10 +931,15 @@ bool IsPositiveSpell(uint32 spellId)
     if (!spellproto)
         return false;
 
+    return IsPositiveSpell(spellproto);
+}
+
+bool IsPositiveSpell(SpellEntry const *spellproto)
+{
     // spells with at least one negative effect are considered negative
     // some self-applied spells have negative effects but in self casting case negative check ignored.
     for (int i = 0; i < MAX_EFFECT_INDEX; ++i)
-        if (!IsPositiveEffect(spellId, SpellEffectIndex(i)))
+        if (spellproto->Effect[i] && !IsPositiveEffect(spellproto, SpellEffectIndex(i)))
             return false;
     return true;
 }
@@ -1495,7 +1526,7 @@ void SpellMgr::LoadSpellBonuses()
                 case SPELL_AURA_PERIODIC_HEAL:
                 case SPELL_AURA_OBS_MOD_HEALTH:
                 case SPELL_AURA_PERIODIC_MANA_LEECH:
-                case SPELL_AURA_OBS_MOD_MANA:
+                case SPELL_AURA_OBS_MOD_ENERGY:
                 case SPELL_AURA_POWER_BURN_MANA:
                     need_dot = true;
                     ++x;
@@ -2593,7 +2624,7 @@ SpellEntry const* SpellMgr::SelectAuraRankForLevel(SpellEntry const* spellInfo, 
             IsAreaEffectPossitiveTarget(Targets(spellInfo->EffectImplicitTargetA[i])))) ||
             spellInfo->Effect[i] == SPELL_EFFECT_APPLY_AREA_AURA_PARTY ||
             spellInfo->Effect[i] == SPELL_EFFECT_APPLY_AREA_AURA_RAID) &&
-            IsPositiveEffect(spellInfo->Id, SpellEffectIndex(i)))
+            IsPositiveEffect(spellInfo, SpellEffectIndex(i)))
         {
             needRankSelection = true;
             break;

@@ -20,6 +20,7 @@
 #define MANGOS_INSTANCE_DATA_H
 
 #include "Common.h"
+#include "GameObject.h"
 
 class Map;
 class Unit;
@@ -54,9 +55,6 @@ class MANGOS_DLL_SPEC InstanceData
         //This is to prevent players from entering during boss encounters.
         virtual bool IsEncounterInProgress() const { return false; };
 
-        // used in InstanceBinding dialog
-        virtual uint32 GetCompletedEncounters(bool /*type*/) { return 0; }
-
         //Called when a player successfully enters the instance (after really added to map)
         virtual void OnPlayerEnter(Player *) {}
 
@@ -65,6 +63,20 @@ class MANGOS_DLL_SPEC InstanceData
 
         //Called when a player leaves the instance (before really removed from map (or possibly world))
         virtual void OnPlayerLeave(Player *) {}
+
+        //Called when a player successfully enters the other zone
+        virtual void OnPlayerEnterZone(Player*, uint32 /*uiNewZoneId*/, uint32 /*uiNewAreaId*/) {}
+
+        //Called when a player leave zone
+        virtual void OnPlayerLeaveZone(Player*, uint32 /*uiOldZoneId*/) {}
+
+        //Called when a player drops a flag in outdoor pvp
+        virtual void OnPlayerDroppedFlag(Player*, uint32 /* uiSpellId*/) {}
+
+        //Handle open / close objects
+        //use HandleGameObject(NULL,boolen,GO); in OnObjectCreate in instance scripts
+        //use HandleGameObject(GUID,boolen,NULL); in any other script
+        void HandleGameObject(uint64 GUID, bool open, GameObject *go = NULL);
 
         //Called when a gameobject is created
         virtual void OnObjectCreate(GameObject *) {}

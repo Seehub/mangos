@@ -25,6 +25,9 @@
     <Filter Include="vmaps">
       <UniqueIdentifier>{948284d3-9d89-4609-8cdd-28a213edb53e}</UniqueIdentifier>
     </Filter>
+    <ClCompile Include="..\..\src\game\LFGMgr.cpp">
+      <Filter>World/Handlers</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\game\AccountMgr.cpp">
@@ -904,7 +907,12 @@
     <ClInclude Include="..\..\src\game\Camera.h">
       <Filter>Object</Filter>
     </ClInclude>
-<<<<<<< HEAD
+    <ClInclude Include="..\..\src\game\LFG.h">
+      <Filter>World/Handlers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\game\LFGMgr.h">
+      <Filter>World/Handlers</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\game\ChatLexicsCutter.h" >
       <Filter>Object</Filter>
     </ClInclude>
@@ -913,13 +921,11 @@
     </ClInclude>
     <ClInclude Include="..\..\src\game\AuctionHouseBot.h">
       <Filter>Object</Filter>
-=======
     <ClInclude Include="..\..\src\game\MoveMap.h">
       <Filter>World/Handlers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\game\MoveMapSharedDefines.h">
       <Filter>World/Handlers</Filter>
->>>>>>> 84ef320ed31a002f502c6b2b02abd4a8276cf3f9
     </ClInclude>
     <ClInclude Include="..\..\src\game\vmap\BIH.h">
       <Filter>vmaps</Filter>
